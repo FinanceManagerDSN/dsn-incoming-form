@@ -265,7 +265,8 @@
     let html = m.doc_type + ": " + esc(m.doc_name) +
                (m.location ? " · 📍 " + esc(m.location) : "") +
                "<br>Сума: <b>" + fmt(m.order_sum) + " " + cur + "</b>" +
-               " · Оплачено (МС): <b>" + fmt(m.paid_sum) + " " + cur + "</b>";
+               " · Оплачено (МС): <b>" + fmt(m.paid_sum) + " " + cur + "</b>" +
+               (m.paid_note ? ' <span style="opacity:.7">(' + esc(m.paid_note) + ')</span>' : "");
     if (m.pending_sum > 0) {
       html += '<br><span class="pend">⏳ Заявлено, ще не надійшло: ' + fmt(m.pending_sum) +
               " " + cur + " (" + m.pending_count + " пл.)</span>";
