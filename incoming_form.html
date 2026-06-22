@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Новий вхідний платіж</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --secondary-bg: var(--tg-theme-secondary-bg-color, #f1f3f5);
+    --text: var(--tg-theme-text-color, #1c1c1e);
+    --hint: var(--tg-theme-hint-color, #8e8e93);
+    --accent: var(--tg-theme-button-color, #2481cc);
+    --field-bg: var(--tg-theme-section-bg-color, #ffffff);
+    --danger: #d9534f;
+    --ok: #2e7d32;
+    --warn-bg: #fff8e1;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--secondary-bg); color: var(--text);
+    font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 12px 12px 24px; }
+  .card { background: var(--field-bg); border-radius: 14px; padding: 16px; margin-bottom: 12px; }
+  .title { font-size: 17px; font-weight: 600; margin-bottom: 4px; }
+  .subtitle { font-size: 13px; color: var(--hint); }
+  label { display: block; font-size: 13px; color: var(--hint); margin: 14px 0 5px; }
+  label .req { color: var(--danger); }
+  input[type="text"], select, textarea {
+    width: 100%; background: var(--secondary-bg); color: var(--text);
+    border: 1px solid transparent; border-radius: 10px; padding: 11px 12px;
+    font: inherit; outline: none; appearance: none; -webkit-appearance: none; }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  input.bad { border-color: var(--danger); }
+  input.autofilled { border-color: var(--ok); }
+  input[readonly] { opacity: .7; }
+  textarea { resize: vertical; min-height: 56px; }
+  select { background-image: linear-gradient(45deg, transparent 50%, var(--hint) 50%), linear-gradient(135deg, var(--hint) 50%, transparent 50%);
+    background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
+    background-size: 5px 5px; background-repeat: no-repeat; padding-right: 32px; }
+  .bighint { background: var(--warn-bg); color: #6d5300; border-radius: 10px;
+    padding: 9px 12px; font-size: 13px; margin-top: 6px; line-height: 1.4; }
+  .okhint { background: #e8f5e9; color: var(--ok); border-radius: 10px;
+    padding: 9px 12px; font-size: 13px; margin-top: 6px; display: none; }
+
+  .alloc { display: flex; justify-content: space-between; align-items: center;
+    margin-top: 14px; padding: 10px 12px; border-radius: 10px; background: var(--secondary-bg);
+    font-size: 14px; }
+  .alloc.warn { background: var(--warn-bg); color: #6d5300; }
+  .alloc.full { background: #e8f5e9; color: var(--ok); }
+
+  .po-item { border: 1px solid var(--secondary-bg); border-radius: 12px; padding: 10px 12px 12px; margin-top: 10px; }
+  .po-head { display: flex; gap: 8px; }
+  .po-head .po-num { flex: 0 0 100px; }
+  .po-head .po-amt { flex: 1; }
+  .po-del { flex: 0 0 40px; background: var(--secondary-bg); border: none; border-radius: 10px;
+    color: var(--danger); font-size: 18px; cursor: pointer; }
+  .po-pct-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+  .po-pct-row .lbl { font-size: 12.5px; color: var(--hint); flex: 1; }
+  .po-pct-row .pctbox { flex: 0 0 96px; position: relative; }
+  .po-pct-row .pctbox input { padding-right: 26px; }
+  .po-pct-row .pctbox::after { content: "%"; position: absolute; right: 11px; top: 11px; color: var(--hint); }
+  .po-info { font-size: 12.5px; color: var(--hint); margin-top: 7px; line-height: 1.55; min-height: 16px; }
+  .po-info .pct { font-weight: 700; }
+  .po-info .pct.ok { color: var(--ok); }
+  .po-info .pct.over { color: var(--danger); }
+  .po-info .pend { color: #e65100; font-weight: 600; }
+  .po-info.err { color: var(--danger); }
+  .po-info.clienterr { color: var(--danger); font-weight: 700; }
+  .spin { display: inline-block; animation: r 1s linear infinite; }
+  @keyframes r { to { transform: rotate(360deg); } }
+
+  .add-btn { width: 100%; margin-top: 12px; padding: 11px; border: 1.5px dashed var(--accent);
+    background: transparent; color: var(--accent); border-radius: 10px;
+    font: inherit; font-weight: 600; cursor: pointer; }
+  .check-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+  .check-row input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent); flex: none; }
+  .check-row span { font-size: 14px; }
+  .check-row .why { font-size: 12px; color: var(--hint); }
+  #balanceAmountBox { display: none; margin-top: 8px; }
+  .footnote { font-size: 12px; color: var(--hint); text-align: center; margin-top: 10px; }
+  .frow { display: flex; gap: 8px; }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="title">📥 Новий вхідний платіж</div>
+  <div class="subtitle">Заповни поля — кнопка «Надіслати» зʼявиться знизу.</div>
+
+  <label>Куди приходить платіж <span class="req">*</span></label>
+  <select id="account"><option value="" selected disabled>— обери рахунок —</option></select>
+
+  <label>Клієнт <span class="req">*</span></label>
+  <input type="text" id="client" placeholder="Назва клієнта" maxlength="120">
+  <div class="bighint" id="clientHint">
+    💡 <b>Лайфхак:</b> можеш НЕ вводити клієнта руками — введи нижче номер PO,
+    і клієнт підтягнеться з МойСклад автоматично.
+  </div>
+  <div class="okhint" id="clientOk"></div>
+
+  <div class="check-row" style="margin-top:16px">
+    <input type="checkbox" id="singlePay" checked>
+    <span>Одним платежем<br><span class="why">вимкни, якщо за раз надійшло кілька окремих сум (кілька квитанцій)</span></span>
+  </div>
+
+  <div class="frow" id="singleSumRow">
+    <div style="flex:1">
+      <label>Сума платежу <span class="req">*</span></label>
+      <input type="text" id="payTotal" inputmode="decimal" placeholder="0.00">
+    </div>
+    <div style="flex:0 0 108px">
+      <label>Валюта <span class="req">*</span></label>
+      <select id="currency"><option>USD</option><option>EUR</option></select>
+    </div>
+  </div>
+
+  <div id="multiSumBox" style="display:none">
+    <div class="frow">
+      <div style="flex:1"><label style="margin-bottom:0">Окремі платежі <span class="req">*</span></label></div>
+      <div style="flex:0 0 108px"><label style="margin-bottom:0">Валюта</label></div>
+    </div>
+    <div id="payList"></div>
+    <button type="button" class="add-btn" id="addPay" style="margin-top:8px">＋ Додати платіж</button>
+    <div class="bighint" style="margin-top:8px">💡 Кожна сума = окремий рядок у таблиці з власним статусом і файлом.
+      Наприкінці прикріпи <b>стільки файлів, скільки платежів</b> — по одному на кожен.</div>
+  </div>
+
+  <div class="alloc" id="allocBox">
+    <span>Розподілено:</span><span id="allocView">0.00 / 0.00</span>
+  </div>
+
+  <label style="margin-bottom:0">Розбивка по PO <span class="req">*</span></label>
+  <div id="poList"></div>
+  <button type="button" class="add-btn" id="addPo">＋ Додати PO</button>
+
+  <div class="check-row">
+    <input type="checkbox" id="toBalance" disabled>
+    <span>Залишок на баланс клієнта<br><span class="why" id="balanceWhy">доступно від 2 PO у платежі</span></span>
+  </div>
+  <div id="balanceAmountBox">
+    <input type="text" id="balanceAmount" placeholder="Сума на баланс" readonly>
+  </div>
+
+  <label>Коментар (опціонально)</label>
+  <textarea id="comment" placeholder="Лише додаткові примітки, напр.: «друга частина оплати»"></textarea>
+  <div class="bighint">⚠️ Відсотки по PO бот допише в коментар <b>сам</b> — НЕ пиши їх тут.</div>
+
+  <div class="check-row">
+    <input type="checkbox" id="notify">
+    <span>🔔 Сповістити мене, коли платіж надійде на рахунок</span>
+  </div>
+
+  <div class="footnote">Скан платіжки (PDF/фото) бот попросить наступним повідомленням ↗</div>
+</div>
+
+<script>
+  const ACCOUNTS = [
+    "DSN spolka (Poland, Eva)",
+    "DSN Firma (Poland, Byczuk)",
+    "Каз (BetterLife.com)",
+    "USDT",
+  ];
+  const GAS_URL = "https://script.google.com/macros/s/XXXX/exec";
+  const SECRET_READ = "інший-рядок-для-читання";
+  const MIN_PO_FOR_BALANCE = 2;
+
+  const tg = window.Telegram.WebApp;
+  tg.ready(); tg.expand();
+
+  const accSel = document.getElementById("account");
+  ACCOUNTS.forEach(a => accSel.add(new Option(a, a)));
+
+  // курси + кеш PO у межах сесії
+  let RATES = null;
+  const poCache = {};
+  fetch(GAS_URL + "?secret=" + encodeURIComponent(SECRET_READ) + "&action=rates")
+    .then(r => r.json()).then(j => { RATES = j; recalcAll(); }).catch(() => {});
+
+  function toDocCur(a, payCur, docCur) {
+    if (payCur === docCur) return a;
+    if (!RATES || !RATES[payCur] || !RATES[docCur]) return null;
+    return a * RATES[payCur] / RATES[docCur];
+  }
+  function toPayCur(aDoc, payCur, docCur) {
+    if (payCur === docCur) return aDoc;
+    if (!RATES || !RATES[payCur] || !RATES[docCur]) return null;
+    return aDoc * RATES[docCur] / RATES[payCur];
+  }
+
+  // клієнт
+  const clientInp = document.getElementById("client");
+  let clientAutofilled = false;
+  let lockedClient = null;
+  clientInp.addEventListener("input", () => {
+    clientAutofilled = false;
+    clientInp.classList.remove("autofilled");
+    document.getElementById("clientOk").style.display = "none";
+    document.getElementById("clientHint").style.display = clientInp.value.trim() ? "none" : "block";
+    lockedClient = clientInp.value.trim() || null;
+    refreshAll(); validate();
+  });
+  function maybeFillClient(ms) {
+    if (!ms || !ms.found || !ms.client) return;
+    if (!lockedClient) {
+      lockedClient = ms.client;
+      if (!clientInp.value.trim() || clientAutofilled) {
+        clientInp.value = ms.client; clientAutofilled = true;
+        clientInp.classList.add("autofilled");
+        document.getElementById("clientHint").style.display = "none";
+        const ok = document.getElementById("clientOk");
+        ok.textContent = "✓ Клієнта підтягнуто по PO " + ms.po + " — перевір, якщо треба.";
+        ok.style.display = "block";
+      }
+    }
+  }
+  function sameClient(a, b) {
+    return String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
+  }
+
+  // PO-рядки
+  const poList = document.getElementById("poList");
+  let poSeq = 0;
+  const poData = {};
+
+  function addPoRow() {
+    const id = ++poSeq;
+    poData[id] = { po: "", amount: null, pct: null, ms: null, loading: false, reqToken: 0 };
+    const div = document.createElement("div");
+    div.className = "po-item"; div.dataset.id = id;
+    div.innerHTML =
+      '<div class="po-head">' +
+        '<div class="po-num"><input type="text" inputmode="numeric" placeholder="PO №" maxlength="5" data-f="po"></div>' +
+        '<div class="po-amt"><input type="text" inputmode="decimal" placeholder="Сума" data-f="amt"></div>' +
+        '<button type="button" class="po-del" title="Видалити">✕</button>' +
+      '</div>' +
+      '<div class="po-pct-row">' +
+        '<span class="lbl">або сплатити PO до:</span>' +
+        '<div class="pctbox"><input type="text" inputmode="numeric" placeholder="%" maxlength="3" data-f="pct"></div>' +
+      '</div>' +
+      '<div class="po-info" data-f="info"></div>';
+    poList.appendChild(div);
+
+    const poInp = div.querySelector('[data-f="po"]');
+    const amtInp = div.querySelector('[data-f="amt"]');
+    const pctInp = div.querySelector('[data-f="pct"]');
+    let debounce = null;
+
+    poInp.addEventListener("input", () => {
+      poInp.value = poInp.value.replace(/\D/g, "").slice(0, 5);
+      poData[id].po = poInp.value;
+      poData[id].ms = null;
+      clearTimeout(debounce);
+      if (/^\d{4,5}$/.test(poInp.value)) {
+        poInp.classList.remove("bad");
+        if (poCache[poInp.value]) applyMs(id, div, poCache[poInp.value]);
+        else debounce = setTimeout(() => lookupPo(id, div), 450);
+      } else {
+        poInp.classList.toggle("bad", poInp.value.length > 0);
+        renderInfo(id, div);
+      }
+      validate();
+    });
+
+    amtInp.addEventListener("input", () => {
+      poData[id].amount = parseAmount(amtInp.value);
+      poData[id].pct = null; pctInp.value = "";
+      reallocate(id);
+      const v = poData[id].amount;
+      if (v != null && amtInp.value !== fmt(v) && document.activeElement !== amtInp) amtInp.value = fmt(v);
+      amtInp.classList.toggle("bad", amtInp.value.trim() !== "" && poData[id].amount === null);
+      refreshAll(); validate();
+    });
+
+    pctInp.addEventListener("input", () => {
+      pctInp.value = pctInp.value.replace(/\D/g, "").slice(0, 3);
+      poData[id].pct = pctInp.value === "" ? null : Number(pctInp.value);
+      applyPct(id);
+      amtInp.value = poData[id].amount != null && poData[id].amount > 0 ? fmt(poData[id].amount) : "";
+      refreshAll(); validate();
+    });
+
+    div.querySelector(".po-del").addEventListener("click", () => {
+      if (Object.keys(poData).length <= 1) return;
+      delete poData[id]; div.remove();
+      recomputeLockedClient();
+      refreshAll(); validate();
+    });
+    updateBalanceAvailability();
+    validate();
+  }
+
+  function lookupPo(id, div) {
+    if (!poData[id]) return;
+    const po = poData[id].po;
+    const token = ++poData[id].reqToken;
+    poData[id].loading = true; renderInfo(id, div);
+    fetch(GAS_URL + "?secret=" + encodeURIComponent(SECRET_READ) + "&action=po&po=" + po)
+      .then(r => r.json())
+      .then(j => {
+        if (!poData[id] || poData[id].reqToken !== token) return;
+        if (j && j.found) poCache[po] = j;
+        applyMs(id, div, j);
+      })
+      .catch(() => {
+        if (!poData[id] || poData[id].reqToken !== token) return;
+        applyMs(id, div, { found: false, reason: "Помилка з'єднання" });
+      });
+  }
+
+  function applyMs(id, div, j) {
+    poData[id].loading = false;
+    poData[id].ms = j;
+    maybeFillClient(j);
+    if (poData[id].pct != null) {
+      applyPct(id);
+      const amtInp = div.querySelector('[data-f="amt"]');
+      amtInp.value = poData[id].amount != null && poData[id].amount > 0 ? fmt(poData[id].amount) : "";
+    }
+    refreshAll(); validate();
+  }
+
+  function applyPct(id) {
+    const d = poData[id];
+    if (d.pct == null || !d.ms || !d.ms.found || !d.ms.order_sum) return;
+    const docCur = d.ms.doc_currency;
+    const already = (d.ms.paid_sum || 0) + (d.ms.pending_sum || 0);
+    let needDoc = d.ms.order_sum * d.pct / 100 - already;
+    if (needDoc < 0) needDoc = 0;
+    const payCur = document.getElementById("currency").value;
+    let needPay = toPayCur(needDoc, payCur, docCur);
+    if (needPay == null) return;
+    d.amount = Math.round(needPay * 100) / 100;
+    reallocate(id);
+  }
+
+  function reallocate(changedId) {
+    const cap = parseAmount(document.getElementById("payTotal").value);
+    if (cap == null) return;
+    let used = 0;
+    for (const k in poData) { if (k == changedId) continue; if (poData[k].amount != null) used += poData[k].amount; }
+    const left = Math.round((cap - used) * 100) / 100;
+    const d = poData[changedId];
+    if (d.amount != null && d.amount > left) {
+      d.amount = Math.max(left, 0);
+      const div = poList.querySelector('.po-item[data-id="' + changedId + '"]');
+      if (div) div.querySelector('[data-f="amt"]').value = d.amount > 0 ? fmt(d.amount) : "";
+    }
+  }
+
+  function renderInfo(id, div) {
+    const info = div.querySelector('[data-f="info"]');
+    const d = poData[id];
+    info.className = "po-info";
+    if (d.loading) { info.innerHTML = '<span class="spin">⏳</span> Шукаю в МойСклад…'; return; }
+    if (!d.ms) { info.textContent = ""; return; }
+    if (!d.ms.found) { info.classList.add("err"); info.textContent = "⚠️ " + (d.ms.reason || "Не знайдено"); return; }
+    const m = d.ms, cur = m.doc_currency;
+
+    if (lockedClient && m.client && !sameClient(lockedClient, m.client)) {
+      info.classList.add("clienterr");
+      info.innerHTML = "⛔ PO " + esc(m.po) + " належить іншому клієнту (<b>" + esc(m.client) +
+                       "</b>), а не «" + esc(lockedClient) + "». Перевір номер PO!";
+      return;
+    }
+
+    const paidPct = m.order_sum > 0 ? ((m.paid_sum + (m.pending_sum||0)) / m.order_sum * 100) : 0;
+    const left100 = Math.max(m.order_sum - m.paid_sum - (m.pending_sum||0), 0);
+    let html = m.doc_type + ": " + esc(m.doc_name) +
+               (m.location ? " · 📍 " + esc(m.location) : "") +
+               (m.paid_note ? ' <span style="opacity:.6">(' + esc(m.paid_note) + ')</span>' : "") +
+               "<br>Сума: <b>" + fmt(m.order_sum) + " " + cur + "</b>" +
+               " · Оплачено: <b>" + fmt(m.paid_sum) + " " + cur + "</b> (" + paidPct.toFixed(1) + "%)";
+    if (m.pending_sum > 0)
+      html += '<br><span class="pend">⏳ Заявлено, не надійшло: ' + fmt(m.pending_sum) + " " + cur + "</span>";
+    html += "<br>До сплати на 100%: <b>" + fmt(left100) + " " + cur + "</b>";
+
+    const pct = computePctAfter(d);
+    if (pct !== null) {
+      const cls = pct > 105 ? "over" : "ok";
+      html += '<br>Після цього платежу: <span class="pct ' + cls + '">' + pct.toFixed(1) + "%</span>" +
+              (pct > 105 ? " ⚠️ переплата >105%, перевір суму" : "");
+    }
+    info.innerHTML = html;
+  }
+
+  function computePctAfter(d) {
+    if (!d.ms || !d.ms.found || d.amount === null || !d.ms.order_sum) return null;
+    const payCur = document.getElementById("currency").value;
+    const inDoc = toDocCur(d.amount, payCur, d.ms.doc_currency);
+    if (inDoc === null) return null;
+    return (d.ms.paid_sum + (d.ms.pending_sum||0) + inDoc) / d.ms.order_sum * 100;
+  }
+
+  function recomputeLockedClient() {
+    if (clientInp.value.trim() && !clientAutofilled) return;
+    lockedClient = null; clientAutofilled = false;
+    clientInp.value = ""; clientInp.classList.remove("autofilled");
+    document.getElementById("clientOk").style.display = "none";
+    document.getElementById("clientHint").style.display = "block";
+    for (const k in poData) {
+      const m = poData[k].ms;
+      if (m && m.found && m.client) { maybeFillClient(m); break; }
+    }
+  }
+
+  function refreshAll() {
+    document.querySelectorAll(".po-item").forEach(div => renderInfo(Number(div.dataset.id), div));
+    updateAlloc(); updateBalance(); updateBalanceAvailability();
+  }
+  function recalcAll() { for (const k in poData) if (poData[k].pct != null) applyPct(k); refreshAll(); validate(); }
+  document.getElementById("currency").addEventListener("change", recalcAll);
+  document.getElementById("payTotal").addEventListener("input", () => {
+    const pt = document.getElementById("payTotal");
+    pt.classList.toggle("bad", pt.value.trim() !== "" && parseAmount(pt.value) === null);
+    for (const k in poData) if (poData[k].pct != null) applyPct(k);
+    refreshAll(); validate();
+  });
+
+  function allocatedPo() {
+    let s = 0; for (const k in poData) if (poData[k].amount != null) s += poData[k].amount;
+    return Math.round(s * 100) / 100;
+  }
+  function allocated() {
+    const bal = balCheck.checked ? (parseAmount(balInp.value) || 0) : 0;
+    return Math.round((allocatedPo() + bal) * 100) / 100;
+  }
+  function updateAlloc() {
+    const cap = parseAmount(document.getElementById("payTotal").value);
+    const cur = document.getElementById("currency").value;
+    const box = document.getElementById("allocBox");
+    const view = document.getElementById("allocView");
+    if (cap == null) { box.className = "alloc"; view.textContent = "0.00 / 0.00 " + cur; return; }
+    const used = allocated();
+    const left = Math.round((cap - used) * 100) / 100;
+    let txt = fmt(used) + " / " + fmt(cap) + " " + cur;
+    if (left > 0.009) txt += "  ·  лишилось " + fmt(left);
+    box.className = "alloc" + (Math.abs(left) < 0.01 && used > 0 ? " full" : (left < -0.01 ? " warn" : ""));
+    if (Math.abs(left) < 0.01 && used > 0) txt += "  ✅";
+    view.textContent = txt;
+  }
+
+  const balCheck = document.getElementById("toBalance");
+  const balBox = document.getElementById("balanceAmountBox");
+  const balInp = document.getElementById("balanceAmount");
+  balCheck.addEventListener("change", () => {
+    balBox.style.display = balCheck.checked ? "block" : "none";
+    updateBalance(); refreshAll(); validate();
+  });
+  function updateBalance() {
+    if (!balCheck.checked) { balInp.value = ""; return; }
+    const cap = parseAmount(document.getElementById("payTotal").value) || 0;
+    const left = Math.round((cap - allocatedPo()) * 100) / 100;
+    balInp.value = left > 0 ? fmt(left) : "0.00";
+  }
+  function validPoCount() {
+    return Object.values(poData).filter(d => /^\d{4,5}$/.test(d.po) && d.amount !== null && d.amount > 0).length;
+  }
+  function updateBalanceAvailability() {
+    const ok = validPoCount() >= MIN_PO_FOR_BALANCE;
+    balCheck.disabled = !ok;
+    document.getElementById("balanceWhy").textContent =
+      ok ? "увесь нерозподілений залишок ляже на баланс клієнта" : "доступно від " + MIN_PO_FOR_BALANCE + " PO у платежі";
+    if (!ok && balCheck.checked) { balCheck.checked = false; balBox.style.display = "none"; balInp.value = ""; }
+  }
+
+  function parseAmount(raw) {
+    raw = (raw || "").trim();
+    if (!/^[\d\s.,]+$/.test(raw)) return null;
+    raw = raw.replace(/[\s\u00a0]/g, "");
+    if (raw.includes(",") && raw.includes(".")) raw = raw.replace(/,/g, "");
+    else raw = raw.replace(",", ".");
+    const v = parseFloat(raw);
+    return (isFinite(v) && v > 0) ? Math.round(v * 100) / 100 : null;
+  }
+  function fmt(v) { return Number(v).toLocaleString("uk-UA", {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+  function esc(s) { const d = document.createElement("div"); d.textContent = s == null ? "" : s; return d.innerHTML; }
+
+  accSel.addEventListener("change", validate);
+  document.getElementById("addPo").addEventListener("click", () => { addPoRow(); validate(); });
+
+  function clientConflict() {
+    if (!lockedClient) return false;
+    for (const k in poData) {
+      const m = poData[k].ms;
+      if (m && m.found && m.client && !sameClient(lockedClient, m.client)) return true;
+    }
+    return false;
+  }
+
+  function isValid() {
+    if (!accSel.value) return false;
+    if (clientInp.value.trim().length < 2) return false;
+    if (multiMode() && !payList_valid()) return false;
+    const cap = parseAmount(document.getElementById("payTotal").value);
+    if (cap == null) return false;
+    const rows = Object.values(poData);
+    if (!rows.length) return false;
+    for (const d of rows) {
+      if (!/^\d{4,5}$/.test(d.po) || d.amount === null || d.amount <= 0) return false;
+    }
+    const set = new Set(rows.map(d => d.po));
+    if (set.size !== rows.length) return false;
+    if (clientConflict()) return false;
+    // стеля переплати: жоден PO не може вийти за 105% після цього платежу
+    for (const d of rows) {
+      const pct = computePctAfter(d);
+      if (pct !== null && pct > 105) return false;
+    }
+    if (Math.abs(allocated() - cap) > 0.01) return false;
+    return true;
+  }
+
+  function validate() {
+    refreshAll();
+    tg.MainButton.setText("🚀 Надіслати платіж");
+    if (isValid()) { tg.MainButton.show(); tg.MainButton.enable(); }
+    else tg.MainButton.hide();
+  }
+
+  tg.MainButton.onClick(() => {
+    if (!isValid()) return;
+    const cur = document.getElementById("currency").value;
+    const cap = parseAmount(document.getElementById("payTotal").value);
+    const balance = balCheck.checked ? Math.round((cap - allocatedPo()) * 100) / 100 : null;
+    const payload = {
+      account: accSel.value,
+      client: clientInp.value.trim(),
+      currency: cur,
+      items: Object.values(poData).map(d => ({ po: d.po, amount: d.amount })),
+      balance_amount: (balance && balance > 0) ? balance : null,
+      total: cap,
+      comment: document.getElementById("comment").value.trim(),
+      notify: document.getElementById("notify").checked,
+      payments: multiMode() ? payAmounts() : null,  // кілька окремих сум або null (один платіж)
+    };
+    tg.sendData(JSON.stringify(payload));
+  });
+
+  // ───── режим «кілька платежів» ─────
+  const singleChk = document.getElementById("singlePay");
+  const payList = document.getElementById("payList");
+  const payTotalInp = document.getElementById("payTotal");
+  let paySeq = 0;
+  const payData = {}; // id → сума (для режиму кількох платежів)
+
+  function multiMode() { return !singleChk.checked; }
+
+  function addPayRow() {
+    const id = ++paySeq;
+    payData[id] = null;
+    const div = document.createElement("div");
+    div.className = "po-item"; div.dataset.pid = id;
+    div.style.marginTop = "8px";
+    div.innerHTML =
+      '<div class="po-head">' +
+        '<div class="po-amt"><input type="text" inputmode="decimal" placeholder="Сума платежу" data-f="psum"></div>' +
+        '<button type="button" class="po-del" title="Видалити">✕</button>' +
+      '</div>';
+    payList.appendChild(div);
+    const inp = div.querySelector('[data-f="psum"]');
+    inp.addEventListener("input", () => {
+      payData[id] = parseAmount(inp.value);
+      inp.classList.toggle("bad", inp.value.trim() !== "" && payData[id] === null);
+      syncPayTotal(); refreshAll(); validate();
+    });
+    div.querySelector(".po-del").addEventListener("click", () => {
+      if (Object.keys(payData).length <= 1) return;
+      delete payData[id]; div.remove();
+      syncPayTotal(); refreshAll(); validate();
+    });
+  }
+
+  // сума всіх платежів → у payTotal (стелю), яку використовує вся PO-логіка
+  function syncPayTotal() {
+    if (!multiMode()) return;
+    let s = 0, any = false;
+    for (const k in payData) if (payData[k] != null) { s += payData[k]; any = true; }
+    payTotalInp.value = any ? fmt(Math.round(s * 100) / 100) : "";
+    for (const k in poData) if (poData[k].pct != null) applyPct(k);
+  }
+
+  function payList_valid() {
+    const vals = Object.values(payData);
+    if (!vals.length) return false;
+    return vals.every(v => v != null && v > 0);
+  }
+  function payAmounts() {
+    return Object.values(payData).filter(v => v != null && v > 0).map(v => Math.round(v * 100) / 100);
+  }
+
+  singleChk.addEventListener("change", () => {
+    const multi = multiMode();
+    document.getElementById("singleSumRow").style.display = multi ? "none" : "flex";
+    document.getElementById("multiSumBox").style.display = multi ? "block" : "none";
+    payTotalInp.readOnly = multi;
+    if (multi) {
+      if (!Object.keys(payData).length) addPayRow();
+      syncPayTotal();
+    } else {
+      payTotalInp.readOnly = false;
+    }
+    refreshAll(); validate();
+  });
+  document.getElementById("addPay").addEventListener("click", () => { addPayRow(); validate(); });
+
+  addPoRow();
+  validate();
+
+</script>
+</body>
+</html>
