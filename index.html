@@ -624,6 +624,19 @@
   addPoRow();
   validate();
 
+  // ─── тимчасова діагностика (приберемо після дебагу) ───
+  (function () {
+    const d = document.createElement("div");
+    d.style.cssText = "margin-top:14px;font-size:11px;color:var(--hint);text-align:center;font-family:monospace;";
+    document.querySelector(".card").appendChild(d);
+    setInterval(() => {
+      let btn = "?";
+      try { btn = tg.MainButton.isVisible ? "SHOWN" : "hidden"; } catch (e) { btn = "err"; }
+      d.textContent = "diag: " + (tg.platform || "?") + " v" + (tg.version || "?") +
+        " · initData:" + (tg.initData ? "yes" : "NO") +
+        " · valid:" + (isValid() ? "yes" : "no") + " · MainButton:" + btn;
+    }, 1000);
+  })();
 </script>
 </body>
 </html>
