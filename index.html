@@ -152,6 +152,13 @@
   </div>
 
   <div class="footnote">Скан платіжки (PDF/фото) бот попросить наступним повідомленням ↗</div>
+
+  <button type="button" id="submitBtn" disabled
+    style="width:100%;margin-top:14px;padding:14px;border:none;border-radius:12px;
+           font:inherit;font-size:16px;font-weight:600;cursor:pointer;
+           background:var(--accent);color:#fff;opacity:.4;">
+    🚀 Надіслати платіж
+  </button>
 </div>
 
 <script>
@@ -530,11 +537,14 @@
   function validate() {
     refreshAll();
     tg.MainButton.setText("🚀 Надіслати платіж");
-    if (isValid()) { tg.MainButton.show(); tg.MainButton.enable(); }
+    const ok = isValid();
+    if (ok) { tg.MainButton.show(); tg.MainButton.enable(); }
     else tg.MainButton.hide();
+    const sb = document.getElementById("submitBtn");
+    if (sb) { sb.disabled = !ok; sb.style.opacity = ok ? "1" : ".4"; }
   }
 
-  tg.MainButton.onClick(() => {
+  function doSubmit() {
     if (!isValid()) return;
     const cur = document.getElementById("currency").value;
     const cap = payCap();
@@ -551,7 +561,9 @@
       payments: multiMode() ? payAmounts() : null,  // кілька окремих сум або null (один платіж)
     };
     tg.sendData(JSON.stringify(payload));
-  });
+  }
+  tg.MainButton.onClick(doSubmit);
+  document.getElementById("submitBtn").addEventListener("click", doSubmit);
 
   // ───── режим «кілька платежів» ─────
   const singleChk = document.getElementById("singlePay");
