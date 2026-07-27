@@ -67,6 +67,9 @@
   .po-info .pend { color: #e65100; font-weight: 600; }
   .po-info.err { color: var(--danger); }
   .po-info.clienterr { color: var(--danger); font-weight: 700; }
+  .ship-box { margin: 6px 0 0 24px; padding-left: 10px; border-left: 2px solid var(--secondary-bg); }
+  .ship-amt input { width: 60%; font-size: 14px; padding: 8px 10px; }
+  .ship-info { font-size: 12px; }
   .ship-row { display: flex; align-items: center; gap: 7px; margin-top: 8px;
     font-size: 13px; color: var(--hint); cursor: pointer; }
   .ship-row input { width: 16px; height: 16px; accent-color: var(--accent); }
@@ -238,7 +241,8 @@
 
   function addPoRow() {
     const id = ++poSeq;
-    poData[id] = { po: "", amount: null, pct: null, ms: null, loading: false, reqToken: 0, shipping: false };
+    poData[id] = { po: "", amount: null, pct: null, ms: null, loading: false, reqToken: 0,
+                   shipping: false, shipAmount: null, shipMs: null, shipLoading: false, shipReqToken: 0 };
     const div = document.createElement("div");
     div.className = "po-item"; div.dataset.id = id;
     div.innerHTML =
@@ -251,7 +255,11 @@
         '<span class="lbl">або сплатити PO до:</span>' +
         '<div class="pctbox"><input type="text" inputmode="numeric" placeholder="%" maxlength="3" data-f="pct"></div>' +
       '</div>' +
-      '<label class="ship-row"><input type="checkbox" data-f="ship"> 🚚 Логістика (+Shipping)</label>' +
+      '<label class="ship-row"><input type="checkbox" data-f="ship"> 🚚 Доставка (окремий shipping-документ)</label>' +
+      '<div class="ship-box" data-f="shipbox" style="display:none">' +
+        '<div class="ship-amt"><input type="text" inputmode="decimal" placeholder="Сума доставки" data-f="shipamt"></div>' +
+        '<div class="po-info ship-info" data-f="shipinfo"></div>' +
+      '</div>' +
       '<div class="po-info" data-f="info"></div>';
     poList.appendChild(div);
 
@@ -261,27 +269,44 @@
     const shipInp = div.querySelector('[data-f="ship"]');
     let debounce = null;
 
+    const shipBox = div.querySelector('[data-f="shipbox"]');
+    const shipAmtInp = div.querySelector('[data-f="shipamt"]');
+
     shipInp.addEventListener("change", () => {
       poData[id].shipping = shipInp.checked;
-      poData[id].ms = null;
-      clearTimeout(debounce);
-      if (PO_RE.test(poData[id].po)) {
-        const ck = cacheKey(poData[id].po, poData[id].shipping);
-        if (poCache[ck]) applyMs(id, div, poCache[ck]);
-        else lookupPo(id, div);
-      } else renderInfo(id, div);
+      shipBox.style.display = shipInp.checked ? "block" : "none";
+      if (shipInp.checked) {
+        if (PO_RE.test(poData[id].po)) {
+          const ck = cacheKey(poData[id].po, true);
+          if (poCache[ck]) applyShipMs(id, div, poCache[ck]);
+          else lookupShip(id, div);
+        }
+      } else {
+        poData[id].shipAmount = null; shipAmtInp.value = "";
+        poData[id].shipMs = null;
+      }
+      refreshAll(); validate();
+    });
+
+    shipAmtInp.addEventListener("input", () => {
+      poData[id].shipAmount = parseAmount(shipAmtInp.value);
+      shipAmtInp.classList.toggle("bad", shipAmtInp.value.trim() !== "" && poData[id].shipAmount === null);
       refreshAll(); validate();
     });
 
     poInp.addEventListener("input", () => {
       poInp.value = poInp.value.toUpperCase().replace(/[^\dA-ZА-ЯІЇЄ-]/g, "").slice(0, 8);
       poData[id].po = poInp.value;
-      poData[id].ms = null;
+      poData[id].ms = null; poData[id].shipMs = null;
       clearTimeout(debounce);
       if (PO_RE.test(poInp.value)) {
         poInp.classList.remove("bad");
-        if (poCache[cacheKey(poInp.value, poData[id].shipping)]) applyMs(id, div, poCache[cacheKey(poInp.value, poData[id].shipping)]);
+        if (poCache[cacheKey(poInp.value, false)]) applyMs(id, div, poCache[cacheKey(poInp.value, false)]);
         else debounce = setTimeout(() => lookupPo(id, div), 450);
+        if (poData[id].shipping) {
+          if (poCache[cacheKey(poInp.value, true)]) applyShipMs(id, div, poCache[cacheKey(poInp.value, true)]);
+          else setTimeout(() => lookupShip(id, div), 450);
+        }
       } else {
         poInp.classList.toggle("bad", poInp.value.length > 0);
         renderInfo(id, div);
@@ -320,20 +345,74 @@
   function lookupPo(id, div) {
     if (!poData[id]) return;
     const po = poData[id].po;
-    const ship = poData[id].shipping;
     const token = ++poData[id].reqToken;
     poData[id].loading = true; renderInfo(id, div);
-    fetch(GAS_URL + "?secret=" + encodeURIComponent(SECRET_READ) + "&action=po&po=" + po + (ship ? "&shipping=1" : ""))
+    fetch(GAS_URL + "?secret=" + encodeURIComponent(SECRET_READ) + "&action=po&po=" + po)
       .then(r => r.json())
       .then(j => {
         if (!poData[id] || poData[id].reqToken !== token) return;
-        if (j && j.found) poCache[cacheKey(po, ship)] = j;
+        if (j && j.found) poCache[cacheKey(po, false)] = j;
         applyMs(id, div, j);
       })
       .catch(() => {
         if (!poData[id] || poData[id].reqToken !== token) return;
         applyMs(id, div, { found: false, reason: "Помилка з'єднання" });
       });
+  }
+
+  function lookupShip(id, div) {
+    if (!poData[id]) return;
+    const po = poData[id].po;
+    const token = ++poData[id].shipReqToken;
+    poData[id].shipLoading = true; renderShipInfo(id, div);
+    fetch(GAS_URL + "?secret=" + encodeURIComponent(SECRET_READ) + "&action=po&po=" + po + "&shipping=1")
+      .then(r => r.json())
+      .then(j => {
+        if (!poData[id] || poData[id].shipReqToken !== token) return;
+        if (j && j.found) poCache[cacheKey(po, true)] = j;
+        applyShipMs(id, div, j);
+      })
+      .catch(() => {
+        if (!poData[id] || poData[id].shipReqToken !== token) return;
+        applyShipMs(id, div, { found: false, reason: "Помилка з'єднання" });
+      });
+  }
+
+  function applyShipMs(id, div, j) {
+    poData[id].shipLoading = false;
+    poData[id].shipMs = j;
+    renderShipInfo(id, div);
+    refreshAll(); validate();
+  }
+
+  function renderShipInfo(id, div) {
+    if (!div) div = poList.querySelector('.po-item[data-id="' + id + '"]');
+    if (!div || !poData[id]) return;
+    const info = div.querySelector('[data-f="shipinfo"]');
+    if (!info) return;
+    const d = poData[id];
+    info.className = "po-info ship-info";
+    if (!d.shipping) { info.textContent = ""; return; }
+    if (d.shipLoading) { info.innerHTML = '<span class="spin">⏳</span> Шукаю доставку…'; return; }
+    if (!d.shipMs) { info.textContent = ""; return; }
+    if (!d.shipMs.found) { info.classList.add("err"); info.textContent = "⚠️ " + (d.shipMs.reason || "Доставку не знайдено"); return; }
+    const m = d.shipMs, cur = m.doc_currency;
+    let html = "🚚 " + m.doc_type + ": " + esc(m.doc_name) +
+               "<br>Сума: <b>" + fmt(m.order_sum) + " " + cur + "</b>" +
+               " · Оплачено: <b>" + fmt(m.paid_sum) + " " + cur + "</b>";
+    if (m.pending_sum > 0)
+      html += '<br><span class="pend">⏳ Заявлено: ' + fmt(m.pending_sum) + " " + cur + "</span>";
+    if (d.shipAmount != null && m.order_sum > 0) {
+      const payCur = document.getElementById("currency").value;
+      const inDoc = toDocCur(d.shipAmount, payCur, cur);
+      if (inDoc !== null) {
+        const pct = (m.paid_sum + (m.pending_sum||0) + inDoc) / m.order_sum * 100;
+        const cls = pct > 105 ? "over" : "ok";
+        html += '<br>Після цього платежу: <span class="pct ' + cls + '">' + pct.toFixed(1) + "%</span>" +
+                (pct > 105 ? " ⚠️ >105%" : "");
+      }
+    }
+    info.innerHTML = html;
   }
 
   function applyMs(id, div, j) {
@@ -436,7 +515,10 @@
   }
 
   function refreshAll() {
-    poList.querySelectorAll(".po-item").forEach(div => renderInfo(Number(div.dataset.id), div));
+    poList.querySelectorAll(".po-item").forEach(div => {
+      renderInfo(Number(div.dataset.id), div);
+      renderShipInfo(Number(div.dataset.id), div);
+    });
     updateAlloc(); updateBalance(); updateBalanceAvailability();
   }
   function recalcAll() { for (const k in poData) if (poData[k].pct != null) applyPct(k); refreshAll(); validate(); }
@@ -459,7 +541,11 @@
   }
 
   function allocatedPo() {
-    let s = 0; for (const k in poData) if (poData[k].amount != null) s += poData[k].amount;
+    let s = 0;
+    for (const k in poData) {
+      if (poData[k].amount != null) s += poData[k].amount;
+      if (poData[k].shipping && poData[k].shipAmount != null) s += poData[k].shipAmount;
+    }
     return Math.round(s * 100) / 100;
   }
   function allocated() {
@@ -539,14 +625,24 @@
     if (!rows.length) return false;
     for (const d of rows) {
       if (!PO_RE.test(d.po) || d.amount === null || d.amount <= 0) return false;
+      // доставка: галочка вимагає суму доставки > 0
+      if (d.shipping && (d.shipAmount === null || d.shipAmount <= 0)) return false;
     }
-    const set = new Set(rows.map(d => d.po + (d.shipping ? "+S" : "")));
+    const set = new Set(rows.map(d => d.po));
     if (set.size !== rows.length) return false;
     if (clientConflict()) return false;
-    // стеля переплати: жоден PO не може вийти за 105% після цього платежу
+    // стеля переплати 105%: і для товару, і для доставки
     for (const d of rows) {
       const pct = computePctAfter(d);
       if (pct !== null && pct > 105) return false;
+      if (d.shipping && d.shipAmount != null && d.shipMs && d.shipMs.found && d.shipMs.order_sum) {
+        const payCur = document.getElementById("currency").value;
+        const inDoc = toDocCur(d.shipAmount, payCur, d.shipMs.doc_currency);
+        if (inDoc !== null) {
+          const sp = (d.shipMs.paid_sum + (d.shipMs.pending_sum||0) + inDoc) / d.shipMs.order_sum * 100;
+          if (sp > 105) return false;
+        }
+      }
     }
     if (Math.abs(allocated() - cap) > 0.01) return false;
     return true;
@@ -571,7 +667,12 @@
       account: accSel.value,
       client: clientInp.value.trim(),
       currency: cur,
-      items: Object.values(poData).map(d => ({ po: d.po, amount: d.amount, shipping: d.shipping })),
+      items: Object.values(poData).flatMap(d => {
+        const out = [{ po: d.po, amount: d.amount, shipping: false }];
+        if (d.shipping && d.shipAmount != null && d.shipAmount > 0)
+          out.push({ po: d.po, amount: d.shipAmount, shipping: true });
+        return out;
+      }),
       balance_amount: (balance && balance > 0) ? balance : null,
       total: cap,
       comment: document.getElementById("comment").value.trim(),
