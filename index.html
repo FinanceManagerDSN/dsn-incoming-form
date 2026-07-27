@@ -67,6 +67,9 @@
   .po-info .pend { color: #e65100; font-weight: 600; }
   .po-info.err { color: var(--danger); }
   .po-info.clienterr { color: var(--danger); font-weight: 700; }
+  .ship-row { display: flex; align-items: center; gap: 7px; margin-top: 8px;
+    font-size: 13px; color: var(--hint); cursor: pointer; }
+  .ship-row input { width: 16px; height: 16px; accent-color: var(--accent); }
   .spin { display: inline-block; animation: r 1s linear infinite; }
   @keyframes r { to { transform: rotate(360deg); } }
 
@@ -167,13 +170,12 @@
     "DSN Firma (Poland, Byczuk)",
     "Каз (BetterLife.com)",
     "USDT",
-    "Камалбек"
   ];
   const GAS_URL = "https://script.google.com/macros/s/AKfycbwXozHXdhLzBBNocFEshFxAay2i9Ekk6gVH6M_4DKOuP_sbFIYeuu-xSFQe51nf7JQOlw/exec";
   const SECRET_READ = "I know the pieces fit cause I watched they fall away";
   const MIN_PO_FOR_BALANCE = 2;
   // PO: 4-5 цифр + опційний суфікс частини "-X" (напр. 9956-B, 9956-2)
-  const PO_RE = /^\d{4,5}(-[\dA-ZА-ЯІЇЄ])?$/;
+  const PO_RE = /^(\d{4,5}(-[\dA-ZА-ЯІЇЄ])?|K[O0]\d{6})$/;
 
   const tg = window.Telegram.WebApp;
   tg.ready(); tg.expand();
@@ -184,6 +186,7 @@
   // курси + кеш PO у межах сесії
   let RATES = null;
   const poCache = {};
+  const cacheKey = (po, ship) => po + (ship ? "+S" : "");
   fetch(GAS_URL + "?secret=" + encodeURIComponent(SECRET_READ) + "&action=rates")
     .then(r => r.json()).then(j => { RATES = j; recalcAll(); }).catch(() => {});
 
@@ -235,12 +238,12 @@
 
   function addPoRow() {
     const id = ++poSeq;
-    poData[id] = { po: "", amount: null, pct: null, ms: null, loading: false, reqToken: 0 };
+    poData[id] = { po: "", amount: null, pct: null, ms: null, loading: false, reqToken: 0, shipping: false };
     const div = document.createElement("div");
     div.className = "po-item"; div.dataset.id = id;
     div.innerHTML =
       '<div class="po-head">' +
-        '<div class="po-num"><input type="text" placeholder="PO № (напр. 9956 або 9956-B)" maxlength="7" data-f="po"></div>' +
+        '<div class="po-num"><input type="text" placeholder="№ (9956, 9956-B, K0164292)" maxlength="8" data-f="po"></div>' +
         '<div class="po-amt"><input type="text" inputmode="decimal" placeholder="Сума" data-f="amt"></div>' +
         '<button type="button" class="po-del" title="Видалити">✕</button>' +
       '</div>' +
@@ -248,22 +251,36 @@
         '<span class="lbl">або сплатити PO до:</span>' +
         '<div class="pctbox"><input type="text" inputmode="numeric" placeholder="%" maxlength="3" data-f="pct"></div>' +
       '</div>' +
+      '<label class="ship-row"><input type="checkbox" data-f="ship"> 🚚 Логістика (+Shipping)</label>' +
       '<div class="po-info" data-f="info"></div>';
     poList.appendChild(div);
 
     const poInp = div.querySelector('[data-f="po"]');
     const amtInp = div.querySelector('[data-f="amt"]');
     const pctInp = div.querySelector('[data-f="pct"]');
+    const shipInp = div.querySelector('[data-f="ship"]');
     let debounce = null;
 
+    shipInp.addEventListener("change", () => {
+      poData[id].shipping = shipInp.checked;
+      poData[id].ms = null;
+      clearTimeout(debounce);
+      if (PO_RE.test(poData[id].po)) {
+        const ck = cacheKey(poData[id].po, poData[id].shipping);
+        if (poCache[ck]) applyMs(id, div, poCache[ck]);
+        else lookupPo(id, div);
+      } else renderInfo(id, div);
+      refreshAll(); validate();
+    });
+
     poInp.addEventListener("input", () => {
-      poInp.value = poInp.value.toUpperCase().replace(/[^\dA-ZА-ЯІЇЄ-]/g, "").slice(0, 7);
+      poInp.value = poInp.value.toUpperCase().replace(/[^\dA-ZА-ЯІЇЄ-]/g, "").slice(0, 8);
       poData[id].po = poInp.value;
       poData[id].ms = null;
       clearTimeout(debounce);
       if (PO_RE.test(poInp.value)) {
         poInp.classList.remove("bad");
-        if (poCache[poInp.value]) applyMs(id, div, poCache[poInp.value]);
+        if (poCache[cacheKey(poInp.value, poData[id].shipping)]) applyMs(id, div, poCache[cacheKey(poInp.value, poData[id].shipping)]);
         else debounce = setTimeout(() => lookupPo(id, div), 450);
       } else {
         poInp.classList.toggle("bad", poInp.value.length > 0);
@@ -303,13 +320,14 @@
   function lookupPo(id, div) {
     if (!poData[id]) return;
     const po = poData[id].po;
+    const ship = poData[id].shipping;
     const token = ++poData[id].reqToken;
     poData[id].loading = true; renderInfo(id, div);
-    fetch(GAS_URL + "?secret=" + encodeURIComponent(SECRET_READ) + "&action=po&po=" + po)
+    fetch(GAS_URL + "?secret=" + encodeURIComponent(SECRET_READ) + "&action=po&po=" + po + (ship ? "&shipping=1" : ""))
       .then(r => r.json())
       .then(j => {
         if (!poData[id] || poData[id].reqToken !== token) return;
-        if (j && j.found) poCache[po] = j;
+        if (j && j.found) poCache[cacheKey(po, ship)] = j;
         applyMs(id, div, j);
       })
       .catch(() => {
@@ -522,7 +540,7 @@
     for (const d of rows) {
       if (!PO_RE.test(d.po) || d.amount === null || d.amount <= 0) return false;
     }
-    const set = new Set(rows.map(d => d.po));
+    const set = new Set(rows.map(d => d.po + (d.shipping ? "+S" : "")));
     if (set.size !== rows.length) return false;
     if (clientConflict()) return false;
     // стеля переплати: жоден PO не може вийти за 105% після цього платежу
@@ -553,7 +571,7 @@
       account: accSel.value,
       client: clientInp.value.trim(),
       currency: cur,
-      items: Object.values(poData).map(d => ({ po: d.po, amount: d.amount })),
+      items: Object.values(poData).map(d => ({ po: d.po, amount: d.amount, shipping: d.shipping })),
       balance_amount: (balance && balance > 0) ? balance : null,
       total: cap,
       comment: document.getElementById("comment").value.trim(),
