@@ -184,15 +184,6 @@
   const tg = window.Telegram.WebApp;
   tg.ready(); tg.expand();
 
-  // ранній детект битого клієнта: якщо Telegram не передав initData —
-  // велика ймовірність, що і надсилання форми (sendData) не спрацює.
-  // Попереджаємо ДО того, як людина витратить час на заповнення.
-  if (!tg.initData) {
-    const w = document.createElement("div");
-    w.style.cssText = "background:#f5a623;color:#3a2a00;padding:12px;border-radius:10px;margin-bottom:12px;font-size:13px;line-height:1.5;font-weight:600;";
-    w.innerHTML = "⚠️ Твій Telegram-клієнт не передав службові дані — надсилання форми з цього пристрою, найімовірніше, <u>не спрацює</u>.<br>Щоб не втратити заповнене — краще одразу відкрий форму <b>з телефона</b>.";
-    document.body.insertBefore(w, document.body.firstChild);
-  }
 
   const accSel = document.getElementById("account");
   ACCOUNTS.forEach(a => accSel.add(new Option(a, a)));
@@ -690,24 +681,7 @@
       notify: document.getElementById("notify").checked,
       payments: multiMode() ? payAmounts() : null,  // кілька окремих сум або null (один платіж)
     };
-    let sendErr = null;
-    try {
-      tg.sendData(JSON.stringify(payload));
-    } catch (e) { sendErr = e; }
-
-    // фідбек: у здоровому клієнті WebApp закривається сам одразу після sendData.
-    // Якщо за 2с ми досі відкриті — дані не пішли (битий клієнт, відомо на macOS).
-    const sb = document.getElementById("submitBtn");
-    sb.textContent = "⏳ Надсилаю…"; sb.disabled = true;
-    setTimeout(() => {
-      const w = document.createElement("div");
-      w.style.cssText = "margin-top:10px;background:#b3261e;color:#fff;padding:12px;border-radius:10px;font-size:13px;line-height:1.5;";
-      w.innerHTML = "⚠️ Схоже, твій Telegram не передав дані (" +
-        (sendErr ? ("помилка: " + esc(String(sendErr.message || sendErr))) : "клієнт проігнорував відправку") +
-        ").<br>Це відомий баг деяких десктоп-клієнтів. <b>Онови Telegram</b> або надішли цей платіж з телефона.";
-      sb.parentNode.insertBefore(w, sb.nextSibling);
-      sb.textContent = "🚀 Надіслати платіж"; sb.disabled = false;
-    }, 2000);
+    tg.sendData(JSON.stringify(payload));
   }
   tg.MainButton.onClick(doSubmit);
   document.getElementById("submitBtn").addEventListener("click", doSubmit);
@@ -783,19 +757,6 @@
   addPoRow();
   validate();
 
-  // ─── тимчасова діагностика (приберемо після дебагу) ───
-  (function () {
-    const d = document.createElement("div");
-    d.style.cssText = "margin-top:14px;font-size:11px;color:var(--hint);text-align:center;font-family:monospace;";
-    document.querySelector(".card").appendChild(d);
-    setInterval(() => {
-      let btn = "?";
-      try { btn = tg.MainButton.isVisible ? "SHOWN" : "hidden"; } catch (e) { btn = "err"; }
-      d.textContent = "diag: " + (tg.platform || "?") + " v" + (tg.version || "?") +
-        " · initData:" + (tg.initData ? "yes" : "NO") +
-        " · valid:" + (isValid() ? "yes" : "no") + " · MainButton:" + btn;
-    }, 1000);
-  })();
 </script>
 </body>
 </html>
